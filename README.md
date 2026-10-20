@@ -27,6 +27,17 @@ without crashing the caller.
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
 | Layout checks | `vault_native.h` | `static_assert` on struct size and field offsets; `bool` is 1 byte on both sides |
 
+## Documentation
+
+- [How it works](docs/how-it-works.md): the layers, what NativeAOT produces, the build,
+  and one async call followed step by step.
+- [Memory ownership](docs/memory-ownership.md): the five ownership patterns, with the
+  C and C# code for each.
+- [Design decisions](docs/design-decisions.md): why the API looks the way it does, and
+  its known limitations.
+- [Build notes](docs/build-notes.md): NativeAOT build problems on Windows and Linux,
+  and their fixes.
+
 ## Layout
 
 ```
