@@ -233,6 +233,17 @@ def check(ok, what):
         failures += 1
 
 
+def attempt(what, action):
+    """Runs action as a check: PASS if it returns, FAIL with the status if it raises."""
+    try:
+        result = action()
+    except VaultError as error:
+        check(False, f"{what}: {error}")
+        return False, None
+    check(True, what)
+    return True, result
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__)
@@ -248,9 +259,10 @@ def main():
         check(error.status == VAULT_ERR_INVALID_ARGUMENT, "a 7-byte key is rejected with VAULT_ERR_INVALID_ARGUMENT")
 
     key = bytes(range(32))  # demo key; never hard-code a real one
-    with Vault(lib, key) as vault:
-        check(True, "vault_open with a 256-bit key")
-
+    opened, vault = attempt("vault_open with a 256-bit key", lambda: Vault(lib, key))
+    if not opened:
+        return 1
+    with vault:
         info = vault.info()
         check(info.key_bits == 256, "vault_get_info fills a stack struct")
         accel = "yes" if info.hardware_accelerated else "no"
@@ -265,8 +277,9 @@ def main():
             outcome.update(sealed=sealed, error=error)
             done.set()
 
-        vault.encrypt_async(message, on_done)
-        check(True, "vault_encrypt_async returns immediately")
+        started, _ = attempt("vault_encrypt_async returns immediately", lambda: vault.encrypt_async(message, on_done))
+        if not started:
+            return 1
 
         finished = done.wait(timeout=10)
         sealed = outcome.get("sealed")

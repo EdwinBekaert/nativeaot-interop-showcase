@@ -61,6 +61,10 @@ cheap compared with the encryption itself.
 These are deliberate omissions for a demo, listed so nobody mistakes them for
 oversights:
 
+- **The async failure path is not tested.** When an encryption throws, the callback
+  fires with `VAULT_ERR_INTERNAL` and a NULL result, and each client has a branch for
+  that. No test reaches it, because making a correct AES-GCM encryption fail on demand
+  would need a test-only failure switch in the library.
 - **The key is not wiped from memory on close.** Encryptions in flight can still be
   using the engine when `vault_close` runs. Wiping safely would need reference
   counting of in-flight operations.

@@ -15,6 +15,22 @@ void Check(bool ok, string what)
         failures++;
 }
 
+// Runs action as a check: PASS if it returns, FAIL with the status if it throws.
+T? Attempt<T>(string what, Func<T> action) where T : class
+{
+    try
+    {
+        T result = action();
+        Check(true, what);
+        return result;
+    }
+    catch (VaultException error)
+    {
+        Check(false, $"{what}: {error.Message}");
+        return null;
+    }
+}
+
 Console.WriteLine($"Vault library {Vault.Version}\n");
 
 // Errors come back as exceptions carrying the status code.
@@ -29,10 +45,11 @@ catch (VaultException error)
 }
 
 byte[] key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray(); // demo key; never hard-code a real one
-using (Vault vault = Vault.Open(key))
+Vault? opened = Attempt("vault_open with a 256-bit key", () => Vault.Open(key));
+if (opened is null)
+    return 1;
+using (Vault vault = opened)
 {
-    Check(true, "vault_open with a 256-bit key");
-
     VaultInfo info = vault.GetInfo();
     Check(info.KeyBits == 256, "vault_get_info fills a stack struct");
     Console.WriteLine(
@@ -40,8 +57,9 @@ using (Vault vault = Vault.Open(key))
 
     // The C callback completes a Task, so the async call reads like any other.
     byte[] message = Encoding.UTF8.GetBytes("Hello from C#, sealed by C#!");
-    Task<SealedResult> encryption = vault.EncryptAsync(message);
-    Check(true, "vault_encrypt_async returns immediately");
+    Task<SealedResult>? encryption = Attempt("vault_encrypt_async returns immediately", () => vault.EncryptAsync(message));
+    if (encryption is null)
+        return 1;
 
     bool finished = await Task.WhenAny(encryption, Task.Delay(TimeSpan.FromSeconds(10))) == encryption;
     Check(finished && encryption.IsCompletedSuccessfully, "callback delivered a result on a worker thread");
