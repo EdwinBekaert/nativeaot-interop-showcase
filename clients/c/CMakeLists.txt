@@ -36,3 +36,7 @@ add_custom_command(TARGET vault_c_client POST_BUILD
     VERBATIM)
 
 add_test(NAME c_client COMMAND vault_c_client)
+if(VAULT_SANITIZE)
+    set_tests_properties(c_client PROPERTIES ENVIRONMENT
+        "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan.supp:print_suppressions=1")
+endif()
