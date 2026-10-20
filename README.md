@@ -3,7 +3,7 @@
 [![CI](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml)
 
 A C# library compiled with **.NET NativeAOT** into a plain native shared library
-(`vault_native.dll` / `.so` / `.dylib`), called from C and Rust through a small C API.
+(`vault_native.dll` / `.so` / `.dylib`), called from C, Rust and Python through a small C API.
 Callers need no .NET runtime: to them it is just another C library.
 
 The library itself is deliberately small (AES-GCM encryption via
@@ -11,8 +11,8 @@ The library itself is deliberately small (AES-GCM encryption via
 languages: who owns which memory, how async work reports back, and how errors cross
 without crashing the caller.
 
-> **Status:** C and Rust clients, built and tested by CI on Windows, Linux and macOS.
-> A Python client and C# calling native code are next.
+> **Status:** C, Rust and Python clients, built and tested by CI on Windows, Linux
+> and macOS. C# calling native code is next.
 
 ## What it demonstrates
 
@@ -26,6 +26,7 @@ without crashing the caller.
 | Async `Task` → C callback with `user_data` | `vault_encrypt_async` | The callback fires exactly once, on success *or* failure, on a worker thread |
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
 | Layout checks | `vault_native.h`, `ffi.rs` | `static_assert` in C and `const` asserts in Rust on struct size and field offsets; `bool` is 1 byte everywhere |
+| Dynamic loading with `ctypes` | `clients/python/vault_client.py` | Every signature declared (pointers aren't truncated); one permanent callback routes completions by a `user_data` token, so no callback is freed while C can still call it |
 | Safe wrapper over a C API | `clients/rust/src/vault.rs` | Handles and results free themselves on `Drop`; errors are `Result`s; a Rust closure becomes the C callback through a trampoline |
 
 ## Documentation
@@ -49,6 +50,7 @@ src/
 clients/
   c/                 C client; also an integration test
   rust/              Rust client: raw bindings (ffi.rs), safe wrapper (vault.rs), checks (main.rs)
+  python/            Python client: ctypes bindings, wrapper and checks in one file
 CMakeLists.txt       One build: runs dotnet publish, then compiles the clients
 ```
 
@@ -60,7 +62,8 @@ Requirements:
 - A C compiler and CMake 3.25+
 - Windows: Visual Studio Build Tools (2022 or 2026) with the "Desktop development
   with C++" workload. NativeAOT uses its linker too.
-- Optional: Rust 1.85+ for the Rust client. It is skipped when `cargo` isn't found.
+- Optional: Rust 1.85+ and Python 3.8+ for those clients. Each is skipped when its
+  toolchain isn't found.
 
 ```sh
 cmake -B build
@@ -69,10 +72,13 @@ ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 The NativeAOT compiler packages are downloaded from nuget.org on the first build.
-There are no other third-party dependencies: no NuGet packages, no crates.
+There are no other third-party dependencies: no NuGet packages, no crates, no pip
+packages.
 
 To see a client's output, run it directly: `build/clients/c/Release/vault_c_client`
-(on Windows with the Visual Studio generator) or `build/cargo/release/vault_rust_client`.
+(on Windows with the Visual Studio generator), `build/cargo/release/vault_rust_client`,
+or `python clients/python/vault_client.py build/native/vault_native.dll` (`.so` /
+`.dylib` elsewhere).
 
 ## Memory ownership rules
 
