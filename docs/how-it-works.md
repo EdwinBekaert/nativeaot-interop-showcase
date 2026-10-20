@@ -113,8 +113,9 @@ What each step guards against:
 ## Errors at the boundary
 
 An exception that escapes an `[UnmanagedCallersOnly]` method terminates the process.
-C has no way to catch it. So every export wraps its body in `try`/`catch` and maps
-what it catches to a status code:
+C has no way to catch it. So every export that can fail wraps its body in
+`try`/`catch` and maps what it catches to a status code. The two string exports
+can't fail: they only return the address of constant data. The mapping is:
 
 | Managed exception | C status |
 |---|---|

@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Text;
 using Vault.Core;
 
 namespace Vault.Native;
@@ -10,34 +10,26 @@ namespace Vault.Native;
 /// The C API. Each method is exported under its EntryPoint name and declared in
 /// include/vault_native.h. Rules followed by every export:
 /// <list type="bullet">
-/// <item>No exception crosses the boundary: each body catches and returns a status code.</item>
+/// <item>No exception crosses the boundary: each body that can fail catches and returns a
+/// status code; the string exports only return constant data and cannot fail.</item>
 /// <item>Caller-owned memory is read or written only during the call, never kept.</item>
 /// <item>Memory handed to the caller comes from NativeMemory and has a matching free export.</item>
 /// </list>
 /// </summary>
 internal static unsafe class Exports
 {
-    private static readonly byte* VersionText = AllocStaticUtf8("0.1.0");
-
-    private static readonly byte* MessageOk = AllocStaticUtf8("ok");
-    private static readonly byte* MessageInvalidArgument = AllocStaticUtf8("invalid argument");
-    private static readonly byte* MessageBufferTooSmall = AllocStaticUtf8("output buffer too small");
-    private static readonly byte* MessageAuthenticationFailed = AllocStaticUtf8("authentication failed: wrong key or tampered data");
-    private static readonly byte* MessageInternal = AllocStaticUtf8("internal error");
-    private static readonly byte* MessageUnknown = AllocStaticUtf8("unknown status code");
-
     [UnmanagedCallersOnly(EntryPoint = "vault_version")]
-    public static byte* Version() => VersionText;
+    public static byte* Version() => CString("0.1.0"u8);
 
     [UnmanagedCallersOnly(EntryPoint = "vault_status_message")]
     public static byte* StatusMessage(int status) => status switch
     {
-        Status.Ok => MessageOk,
-        Status.InvalidArgument => MessageInvalidArgument,
-        Status.BufferTooSmall => MessageBufferTooSmall,
-        Status.AuthenticationFailed => MessageAuthenticationFailed,
-        Status.Internal => MessageInternal,
-        _ => MessageUnknown,
+        Status.Ok => CString("ok"u8),
+        Status.InvalidArgument => CString("invalid argument"u8),
+        Status.BufferTooSmall => CString("output buffer too small"u8),
+        Status.AuthenticationFailed => CString("authentication failed: wrong key or tampered data"u8),
+        Status.Internal => CString("internal error"u8),
+        _ => CString("unknown status code"u8),
     };
 
     // The handle given to C is a GCHandle: it keeps the engine alive while C holds it,
@@ -149,7 +141,17 @@ internal static unsafe class Exports
     }
 
     [UnmanagedCallersOnly(EntryPoint = "vault_sealed_free")]
-    public static void SealedFree(VaultSealed* sealedResult) => FreeSealed(sealedResult);
+    public static void SealedFree(VaultSealed* sealedResult)
+    {
+        try
+        {
+            FreeSealed(sealedResult);
+        }
+        catch
+        {
+            // Nothing to report from a void export.
+        }
+    }
 
     [UnmanagedCallersOnly(EntryPoint = "vault_decrypt")]
     public static int Decrypt(nint vault, VaultSealed* sealedInput, byte* output, nuint outputCapacity, nuint* outWritten)
@@ -241,13 +243,10 @@ internal static unsafe class Exports
         NativeMemory.Free(sealedResult);
     }
 
-    // Allocated once and never freed: backs the [static] strings in the header.
-    private static byte* AllocStaticUtf8(string text)
-    {
-        int length = Encoding.UTF8.GetByteCount(text);
-        var buffer = (byte*)NativeMemory.Alloc((nuint)length + 1);
-        Encoding.UTF8.GetBytes(text, new Span<byte>(buffer, length));
-        buffer[length] = 0;
-        return buffer;
-    }
+    // Backs the [static] strings in the header. A UTF-8 literal ("..."u8) lives in the
+    // binary's read-only data, never moves, and the compiler stores a NUL right after it,
+    // so its address is a valid C string for the life of the process. Nothing is
+    // allocated, so nothing can fail. Only pass literals.
+    private static byte* CString(ReadOnlySpan<byte> utf8Literal) =>
+        (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(utf8Literal));
 }

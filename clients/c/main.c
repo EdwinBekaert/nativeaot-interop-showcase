@@ -62,6 +62,9 @@ int main(void)
 {
     /* [static] strings: use them, never free them. */
     printf("Vault library %s\n\n", vault_version());
+    check(strcmp(vault_status_message(VAULT_OK), "ok") == 0
+              && strcmp(vault_status_message(12345), "unknown status code") == 0,
+          "status messages are NUL-terminated static strings");
 
     /* Invalid input is reported as a status code, not a crash. */
     uint8_t short_key[7] = {0};

@@ -13,7 +13,7 @@ the header says which.** There are five patterns.
 | [Caller buffer with size query](#2-caller-buffer-with-size-query) | caller | caller | `vault_decrypt` |
 | [Library-allocated result](#3-library-allocated-result) | library | library, via `vault_sealed_free` | `vault_encrypt_async` |
 | [Opaque handle](#4-opaque-handle) | library | library, via `vault_close` | `vault_open` |
-| [Static data](#5-static-data) | library, once | never | `vault_version` |
+| [Static data](#5-static-data) | compiled into the library | never | `vault_version` |
 
 Caller-owned inputs, such as the key and the plaintext, follow one more rule: the
 library reads or copies them during the call and keeps no pointer afterwards.
@@ -129,9 +129,11 @@ reclaims it afterwards.
 printf("Vault library %s\n", vault_version());   /* never free this */
 ```
 
-The version string and the status messages are allocated once, the first time the
-library is called, and live until the process exits. The caller can use them anywhere without worrying about
-lifetime.
+The version string and the status messages are C# UTF-8 literals (`"ok"u8`). They live
+in the library's read-only data, never move, and the compiler stores a NUL after each
+one, so the library returns their addresses directly: nothing is allocated, and nothing
+is ever freed. The caller can use them anywhere without worrying about lifetime. The C
+client checks that they read back as proper NUL-terminated strings.
 
 ## What the C client checks
 
