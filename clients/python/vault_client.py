@@ -172,9 +172,7 @@ class Vault:
     def __init__(self, lib, key):
         self._lib = lib
         self._handle = c_void_p()
-        status = lib.vault_open(as_uint8_array(key), len(key), byref(self._handle))
-        if status != VAULT_OK:
-            raise VaultError(lib, status)
+        self._check(lib.vault_open(as_uint8_array(key), len(key), byref(self._handle)))
 
     def info(self):
         info = VaultInfo()  # caller-owned; the library fills it in
