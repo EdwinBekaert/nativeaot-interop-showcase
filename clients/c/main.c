@@ -33,6 +33,7 @@ typedef struct pending_encrypt {
     completion_t done;
     vault_status status;
     vault_sealed_t* sealed;
+    thread_id_t callback_thread;
 } pending_encrypt_t;
 
 /* Runs on a library worker thread. Hands the result to main and returns quickly. */
@@ -41,13 +42,39 @@ static void on_encrypted(vault_status status, vault_sealed_t* sealed, void* user
     pending_encrypt_t* pending = (pending_encrypt_t*)user_data;
     pending->status = status;
     pending->sealed = sealed; /* ownership moves to main, which frees it */
+    pending->callback_thread = current_thread();
     completion_signal(&pending->done);
+}
+
+/* Encrypts and waits for the result: NULL if the call or the callback failed. */
+static vault_sealed_t* encrypt_and_wait(const vault_t* vault, const uint8_t* data, size_t len)
+{
+    pending_encrypt_t pending = {0};
+    completion_init(&pending.done);
+    if (vault_encrypt_async(vault, data, len, on_encrypted, &pending) != VAULT_OK)
+        return NULL;
+    if (!completion_wait(&pending.done, 10000)) {
+        /* The callback still holds &pending and will write to it later, so this frame
+           must not return. A timeout ends the test run. */
+        check(false, "an encryption finished within 10 seconds");
+        exit(1);
+    }
+    return pending.status == VAULT_OK ? pending.sealed : NULL;
 }
 
 int main(void)
 {
     /* [static] strings: use them, never free them. */
     printf("Vault library %s\n\n", vault_version());
+    check(strcmp(vault_version(), "0.1.0") == 0
+              && strcmp(vault_status_message(VAULT_OK), "ok") == 0
+              && strcmp(vault_status_message(VAULT_ERR_INVALID_ARGUMENT), "invalid argument") == 0
+              && strcmp(vault_status_message(VAULT_ERR_BUFFER_TOO_SMALL), "output buffer too small") == 0
+              && strcmp(vault_status_message(VAULT_ERR_AUTHENTICATION_FAILED),
+                        "authentication failed: wrong key or tampered data") == 0
+              && strcmp(vault_status_message(VAULT_ERR_INTERNAL), "internal error") == 0
+              && strcmp(vault_status_message(12345), "unknown status code") == 0,
+          "the version and every status message are NUL-terminated static strings");
 
     /* Invalid input is reported as a status code, not a crash. */
     uint8_t short_key[7] = {0};
@@ -64,6 +91,18 @@ int main(void)
     check(status == VAULT_OK && vault != NULL, "vault_open with a 256-bit key");
     if (status != VAULT_OK)
         return 1;
+
+    /* AES-128 and AES-192 keys work too. */
+    size_t smaller_sizes[] = {16, 24};
+    for (size_t i = 0; i < 2; i++) {
+        vault_t* smaller = NULL;
+        vault_info_t smaller_info = {0};
+        bool ok = vault_open(key, smaller_sizes[i], &smaller) == VAULT_OK
+                  && vault_get_info(smaller, &smaller_info) == VAULT_OK
+                  && smaller_info.key_bits == smaller_sizes[i] * 8;
+        check(ok, smaller_sizes[i] == 16 ? "vault_open with a 128-bit key" : "vault_open with a 192-bit key");
+        vault_close(smaller);
+    }
 
     /* [caller-owned] struct on our stack, filled in by C#. */
     vault_info_t info;
@@ -83,7 +122,8 @@ int main(void)
         return 1;
 
     bool finished = completion_wait(&pending.done, 10000);
-    check(finished && pending.status == VAULT_OK && pending.sealed != NULL,
+    check(finished && pending.status == VAULT_OK && pending.sealed != NULL
+              && !same_thread(pending.callback_thread, current_thread()),
           "callback delivered a result on a worker thread");
     if (!finished || pending.sealed == NULL)
         return 1;
@@ -92,6 +132,20 @@ int main(void)
     print_hex("nonce", sealed->nonce, sealed->nonce_len);
     print_hex("ciphertext", sealed->ciphertext, sealed->ciphertext_len);
     print_hex("tag", sealed->tag, sealed->tag_len);
+    check(sealed->ciphertext_len == message_len && memcmp(sealed->ciphertext, message, message_len) != 0,
+          "the ciphertext differs from the plaintext");
+
+    /* Every encryption gets a fresh nonce, even for the same message. */
+    vault_sealed_t* again = encrypt_and_wait(vault, (const uint8_t*)message, message_len);
+    check(again != NULL && memcmp(again->nonce, sealed->nonce, sealed->nonce_len) != 0,
+          "encrypting the same message twice uses different nonces");
+    vault_sealed_free(again);
+
+    /* More invalid input: each is a status code, and no callback runs. */
+    check(vault_encrypt_async(vault, (const uint8_t*)message, message_len, NULL, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL callback is rejected with VAULT_ERR_INVALID_ARGUMENT");
+    check(vault_encrypt_async(vault, NULL, 1, on_encrypted, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "NULL plaintext with a non-zero length is rejected");
 
     /* [caller-owned] output buffer: ask for the size, allocate, then decrypt. */
     size_t needed = 0;
@@ -107,14 +161,59 @@ int main(void)
           "vault_decrypt round-trips the message");
     printf("  plaintext   \"%.*s\"\n", (int)written, (const char*)plaintext);
 
+    size_t reported = 0;
+    check(vault_decrypt(vault, sealed, plaintext, needed - 1, &reported) == VAULT_ERR_BUFFER_TOO_SMALL
+              && reported == needed,
+          "a buffer one byte short returns VAULT_ERR_BUFFER_TOO_SMALL with the size needed");
+    reported = 0;
+    check(vault_decrypt(vault, sealed, NULL, needed, &reported) == VAULT_ERR_BUFFER_TOO_SMALL && reported == needed,
+          "a NULL output with a large capacity is still a size query");
+    check(vault_decrypt(vault, sealed, plaintext, needed, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL out_written is rejected");
+    vault_sealed_t short_nonce = *sealed; /* same buffers, wrong length */
+    short_nonce.nonce_len = 5;
+    check(vault_decrypt(vault, &short_nonce, plaintext, needed, &written) == VAULT_ERR_INVALID_ARGUMENT,
+          "a 5-byte nonce is rejected with VAULT_ERR_INVALID_ARGUMENT");
+    vault_sealed_t no_ciphertext = *sealed;
+    no_ciphertext.ciphertext = NULL;
+    check(vault_decrypt(vault, &no_ciphertext, plaintext, needed, &written) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL ciphertext with a non-zero length is rejected");
+
+    /* A different key fails authentication. */
+    uint8_t other_key[32] = {0};
+    vault_t* other = NULL;
+    status = vault_open(other_key, sizeof other_key, &other);
+    check(status == VAULT_OK && vault_decrypt(other, sealed, plaintext, needed, &written) == VAULT_ERR_AUTHENTICATION_FAILED,
+          "decrypting with a different key fails authentication");
+    vault_close(other);
+
     /* Tampering is detected: flip one bit of the tag. */
     sealed->tag[0] ^= 0x01;
+    written = 99;
     status = vault_decrypt(vault, sealed, plaintext, needed, &written);
-    check(status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered tag fails authentication");
+    check(status == VAULT_ERR_AUTHENTICATION_FAILED && written == 0,
+          "a tampered tag fails authentication and reports 0 bytes written");
     printf("  -> %s\n", vault_status_message(status));
 
     free(plaintext);
     vault_sealed_free(sealed);
+
+    /* An empty message needs no output buffer: decrypting with output = NULL still
+       verifies its tag. */
+    vault_sealed_t* empty = encrypt_and_wait(vault, NULL, 0);
+    check(empty != NULL && empty->ciphertext_len == 0, "an empty message encrypts");
+    if (empty != NULL) {
+        written = 1;
+        status = vault_decrypt(vault, empty, NULL, 0, &written);
+        check(status == VAULT_OK && written == 0, "an empty message decrypts with output = NULL");
+        empty->tag[0] ^= 0x01;
+        status = vault_decrypt(vault, empty, NULL, 0, &written);
+        check(status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered empty message fails authentication");
+        vault_sealed_free(empty);
+    }
+
+    vault_sealed_free(NULL); /* documented as ignored */
+    check(true, "vault_sealed_free(NULL) returns");
     vault_close(vault);
 
     printf("\n%s\n", failures == 0 ? "All checks passed." : "Some checks FAILED.");

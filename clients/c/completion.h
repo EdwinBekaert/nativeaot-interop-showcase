@@ -1,6 +1,7 @@
 /*
  * completion.h - a one-shot "done" signal with a timeout, so the main thread can wait
- * for a callback that runs on another thread. Windows and POSIX versions.
+ * for a callback that runs on another thread, and a way to tell threads apart.
+ * Windows and POSIX versions.
  */
 #ifndef COMPLETION_H
 #define COMPLETION_H
@@ -17,6 +18,11 @@ typedef struct completion {
     CONDITION_VARIABLE cv;
     bool done;
 } completion_t;
+
+typedef DWORD thread_id_t;
+
+static thread_id_t current_thread(void) { return GetCurrentThreadId(); }
+static bool same_thread(thread_id_t a, thread_id_t b) { return a == b; }
 
 static void completion_init(completion_t* c)
 {
@@ -60,10 +66,31 @@ typedef struct completion {
     bool done;
 } completion_t;
 
+typedef pthread_t thread_id_t;
+
+static thread_id_t current_thread(void) { return pthread_self(); }
+static bool same_thread(thread_id_t a, thread_id_t b) { return pthread_equal(a, b) != 0; }
+
+/* The deadline is measured on a clock that a wall-clock change can't move. macOS can't
+   set a condition variable's clock, so it falls back to the realtime clock. */
+#if defined(__APPLE__)
+#  define COMPLETION_CLOCK CLOCK_REALTIME
+#else
+#  define COMPLETION_CLOCK CLOCK_MONOTONIC
+#endif
+
 static void completion_init(completion_t* c)
 {
     pthread_mutex_init(&c->lock, NULL);
+#if defined(__APPLE__)
     pthread_cond_init(&c->cv, NULL);
+#else
+    pthread_condattr_t attr;
+    pthread_condattr_init(&attr);
+    pthread_condattr_setclock(&attr, COMPLETION_CLOCK);
+    pthread_cond_init(&c->cv, &attr);
+    pthread_condattr_destroy(&attr);
+#endif
     c->done = false;
 }
 
@@ -79,7 +106,7 @@ static void completion_signal(completion_t* c)
 static bool completion_wait(completion_t* c, unsigned timeout_ms)
 {
     struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
+    clock_gettime(COMPLETION_CLOCK, &deadline);
     deadline.tv_sec += timeout_ms / 1000;
     deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
     if (deadline.tv_nsec >= 1000000000L) {

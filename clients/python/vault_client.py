@@ -172,9 +172,7 @@ class Vault:
     def __init__(self, lib, key):
         self._lib = lib
         self._handle = c_void_p()
-        status = lib.vault_open(as_uint8_array(key), len(key), byref(self._handle))
-        if status != VAULT_OK:
-            raise VaultError(lib, status)
+        self._check(lib.vault_open(as_uint8_array(key), len(key), byref(self._handle)))
 
     def info(self):
         info = VaultInfo()  # caller-owned; the library fills it in
@@ -195,7 +193,8 @@ class Vault:
         """Size query: output = NULL makes the library report the size needed."""
         needed = c_size_t()
         status = self._lib.vault_decrypt(self._handle, sealed._pointer, None, 0, byref(needed))
-        if status != VAULT_ERR_BUFFER_TOO_SMALL:
+        # VAULT_OK: an empty plaintext, already verified, needs no buffer.
+        if status not in (VAULT_ERR_BUFFER_TOO_SMALL, VAULT_OK):
             raise VaultError(self._lib, status)
         return needed.value
 
@@ -234,6 +233,17 @@ def check(ok, what):
         failures += 1
 
 
+def attempt(what, action):
+    """Runs action as a check: PASS if it returns, FAIL with the status if it raises."""
+    try:
+        result = action()
+    except VaultError as error:
+        check(False, f"{what}: {error}")
+        return False, None
+    check(True, what)
+    return True, result
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__)
@@ -249,9 +259,10 @@ def main():
         check(error.status == VAULT_ERR_INVALID_ARGUMENT, "a 7-byte key is rejected with VAULT_ERR_INVALID_ARGUMENT")
 
     key = bytes(range(32))  # demo key; never hard-code a real one
-    with Vault(lib, key) as vault:
-        check(True, "vault_open with a 256-bit key")
-
+    opened, vault = attempt("vault_open with a 256-bit key", lambda: Vault(lib, key))
+    if not opened:
+        return 1
+    with vault:
         info = vault.info()
         check(info.key_bits == 256, "vault_get_info fills a stack struct")
         accel = "yes" if info.hardware_accelerated else "no"
@@ -266,8 +277,9 @@ def main():
             outcome.update(sealed=sealed, error=error)
             done.set()
 
-        vault.encrypt_async(message, on_done)
-        check(True, "vault_encrypt_async returns immediately")
+        started, _ = attempt("vault_encrypt_async returns immediately", lambda: vault.encrypt_async(message, on_done))
+        if not started:
+            return 1
 
         finished = done.wait(timeout=10)
         sealed = outcome.get("sealed")
@@ -297,6 +309,30 @@ def main():
             except VaultError as error:
                 check(error.status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered tag fails authentication")
                 print(f"  -> {error}")
+
+        # An empty message needs no output buffer; its tag is still verified.
+        empty_done = threading.Event()
+        empty_outcome = {}
+
+        def on_empty(sealed, error):
+            empty_outcome.update(sealed=sealed, error=error)
+            empty_done.set()
+
+        vault.encrypt_async(b"", on_empty)
+        empty = empty_outcome.get("sealed") if empty_done.wait(timeout=10) else None
+        check(empty is not None, "an empty message encrypts")
+        if empty is not None:
+            with empty:
+                check(
+                    vault.plaintext_len(empty) == 0 and vault.decrypt(empty) == b"",
+                    "an empty message round-trips",
+                )
+                empty.flip_tag_bit()
+                try:
+                    vault.decrypt(empty)
+                    check(False, "a tampered empty message fails authentication")
+                except VaultError as error:
+                    check(error.status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered empty message fails authentication")
 
     print("\nAll checks passed." if failures == 0 else "\nSome checks FAILED.")
     return 0 if failures == 0 else 1

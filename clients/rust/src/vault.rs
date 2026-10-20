@@ -114,7 +114,8 @@ impl VaultHandle {
             )
         };
         match status {
-            ffi::VAULT_ERR_BUFFER_TOO_SMALL => Ok(needed),
+            // VAULT_OK: an empty plaintext, already verified, needs no buffer.
+            ffi::VAULT_ERR_BUFFER_TOO_SMALL | ffi::VAULT_OK => Ok(needed),
             other => Err(VaultError(other)),
         }
     }

@@ -28,7 +28,7 @@ assembly directly, such as a .NET Framework or Unity app, would use it.
 | Caller-allocated struct | `vault_get_info` | C# fills a struct on the C stack: no allocation, nothing to free |
 | Caller-provided buffer with size query | `vault_decrypt` | The classic "call with NULL to get the size" pattern used across Win32 and POSIX |
 | Library-allocated result with a free function | `vault_sealed_free` | Memory comes from `NativeMemory` and goes back through the library, never `free()` |
-| Static strings | `vault_version`, `vault_status_message` | Allocated once, valid for the process lifetime |
+| Static strings | `vault_version`, `vault_status_message` | UTF-8 literals in the library's read-only data: no allocation, valid for the process lifetime |
 | Async `Task` → C callback with `user_data` | `vault_encrypt_async` | The callback fires exactly once, on success *or* failure, on a worker thread |
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
 | Leak and memory-error checks | CI `sanitizers` job | The C client runs under AddressSanitizer, LeakSanitizer and UBSan; a forgotten `vault_sealed_free` is reported down to the C# line that allocated it |
