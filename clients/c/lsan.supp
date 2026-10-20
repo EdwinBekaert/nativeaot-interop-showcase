@@ -1,0 +1,12 @@
+# LeakSanitizer suppressions for the C client.
+#
+# The .NET runtime gives each thread that uses its wait subsystem a native mutex and
+# condition variable (88 bytes). They are owned by managed objects on the garbage
+# collected heap, which LeakSanitizer does not scan, and are released when the thread
+# ends, after the process exit at which the leak check runs. So they show up as
+# "direct leaks" although nothing is lost.
+#
+# Suppress exactly that allocation site. Anything the library hands to the client,
+# such as a result not passed to vault_sealed_free, is allocated elsewhere
+# (Vault.Native's ToNative) and is still reported.
+leak:SystemNative_LowLevelMonitor_Create
