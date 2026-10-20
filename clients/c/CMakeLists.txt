@@ -9,7 +9,14 @@ else()
     target_link_libraries(vault_c_client PRIVATE Threads::Threads)
 endif()
 
-# Put the library next to the executable so it is found at run time.
+# Put the library next to the executable so it is found at run time: Windows looks
+# there first, and on Linux and macOS the rpath points there.
+if(APPLE)
+    set_target_properties(vault_c_client PROPERTIES BUILD_RPATH "@loader_path")
+elseif(UNIX)
+    set_target_properties(vault_c_client PROPERTIES BUILD_RPATH "$ORIGIN")
+endif()
+
 add_custom_command(TARGET vault_c_client POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "$<TARGET_FILE:vault_native>" "$<TARGET_FILE_DIR:vault_c_client>"

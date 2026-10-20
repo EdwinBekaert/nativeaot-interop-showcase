@@ -15,6 +15,12 @@
     <ProjectReference Include="..\Vault.Core\Vault.Core.csproj" />
   </ItemGroup>
 
+  <!-- NativeAOT gives macOS libraries an @rpath install name but sets no soname on
+       Linux. Without one, programs record the library's full build path. -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <LinkerArg Include="-Wl,-soname,$(TargetName).so" />
+  </ItemGroup>
+
   <!-- C callers on Windows link against the import library, which NativeAOT leaves
        in the intermediate folder. Ship it next to the DLL. -->
   <Target Name="PublishImportLibrary" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Windows'))">

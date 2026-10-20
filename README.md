@@ -1,5 +1,7 @@
 # nativeaot-interop-showcase
 
+[![CI](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml)
+
 A C# library compiled with **.NET NativeAOT** into a plain native shared library
 (`vault_native.dll` / `.so` / `.dylib`), called from C through a small C API. Callers
 need no .NET runtime: to them it is just another C library.
@@ -9,8 +11,8 @@ The library itself is deliberately small (AES-GCM encryption via
 languages: who owns which memory, how async work reports back, and how errors cross
 without crashing the caller.
 
-> **Status:** C client on Windows. Rust and Python clients, C# calling native code,
-> and CI on Windows, Linux and macOS are next.
+> **Status:** C client, built and tested by CI on Windows, Linux and macOS. Rust and
+> Python clients and C# calling native code are next.
 
 ## What it demonstrates
 
