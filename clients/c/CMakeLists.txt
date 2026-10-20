@@ -9,6 +9,19 @@ else()
     target_link_libraries(vault_c_client PRIVATE Threads::Threads)
 endif()
 
+# AddressSanitizer replaces malloc and free for the whole process. The library
+# allocates its results with NativeMemory, which uses the same malloc, so a result
+# the client forgets to pass to vault_sealed_free is reported as a leak, and a
+# double free or use after free stops the program.
+if(VAULT_SANITIZE)
+    if(MSVC)
+        message(FATAL_ERROR "VAULT_SANITIZE needs GCC or Clang: MSVC has no leak detection")
+    endif()
+    set(sanitize_flags -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+    target_compile_options(vault_c_client PRIVATE ${sanitize_flags})
+    target_link_options(vault_c_client PRIVATE ${sanitize_flags})
+endif()
+
 # Put the library next to the executable so it is found at run time: Windows looks
 # there first, and on Linux and macOS the rpath points there.
 if(APPLE)

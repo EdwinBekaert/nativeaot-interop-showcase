@@ -44,3 +44,30 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy --release --target-dir ../../build/cargo -- -D warnings
+
+  # Runs the C client under AddressSanitizer, LeakSanitizer and UBSan: a leak, double
+  # free, use after free or undefined behaviour across the boundary fails the job.
+  sanitizers:
+    name: sanitizers (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DVAULT_SANITIZE=ON
+
+      - name: Build
+        run: cmake --build build --target vault_c_client
+
+      - name: Run the C client under the sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --tests-regex '^c_client$' --output-on-failure

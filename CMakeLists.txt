@@ -5,6 +5,8 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 enable_testing()
 
+option(VAULT_SANITIZE "Build the C client with AddressSanitizer, LeakSanitizer and UBSan" OFF)
+
 # ---- Build the C# library with NativeAOT -------------------------------------
 # `cmake --build` runs `dotnet publish`, so one build command produces the native
 # library and every client.
