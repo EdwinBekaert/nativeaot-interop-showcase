@@ -67,6 +67,10 @@ The caller chooses the allocator: `malloc`, the stack, an arena, a pooled buffer
 library never allocates. Here the size is simply the ciphertext length, so a caller
 who knows that can skip the query.
 
+One edge case: an empty plaintext needs no buffer, so the NULL call goes straight on to
+verify the tag and returns `VAULT_OK` (or `VAULT_ERR_AUTHENTICATION_FAILED`) with
+`*out_written = 0`. A size query should accept `VAULT_OK` as "size 0, already done".
+
 ## 3. Library-allocated result
 
 When the library creates the data, here asynchronously, so the caller can't provide a
