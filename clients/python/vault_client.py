@@ -193,7 +193,8 @@ class Vault:
         """Size query: output = NULL makes the library report the size needed."""
         needed = c_size_t()
         status = self._lib.vault_decrypt(self._handle, sealed._pointer, None, 0, byref(needed))
-        if status != VAULT_ERR_BUFFER_TOO_SMALL:
+        # VAULT_OK: an empty plaintext, already verified, needs no buffer.
+        if status not in (VAULT_ERR_BUFFER_TOO_SMALL, VAULT_OK):
             raise VaultError(self._lib, status)
         return needed.value
 

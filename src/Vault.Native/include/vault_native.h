@@ -122,7 +122,9 @@ VAULT_API void vault_sealed_free(vault_sealed_t* sealed);
  *   output       [caller-owned] receives the plaintext.
  *   out_written  set to the number of bytes written.
  * To find the size needed, pass output = NULL: the call returns
- * VAULT_ERR_BUFFER_TOO_SMALL and sets *out_written to the size.
+ * VAULT_ERR_BUFFER_TOO_SMALL and sets *out_written to the size. An empty plaintext
+ * needs no buffer: then the call verifies the tag and returns VAULT_OK (or
+ * VAULT_ERR_AUTHENTICATION_FAILED) with *out_written = 0.
  * Returns VAULT_ERR_AUTHENTICATION_FAILED, with output zeroed, if verification fails.
  */
 VAULT_API vault_status vault_decrypt(const vault_t* vault, const vault_sealed_t* sealed,

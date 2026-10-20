@@ -167,9 +167,10 @@ internal static unsafe class Exports
                 || (s.Tag == null && s.TagLen != 0))
                 return Status.InvalidArgument;
 
-            // Size query: the caller asks first, allocates, then calls again.
+            // Size query: the caller asks first, allocates, then calls again. An empty
+            // plaintext needs no buffer, so a NULL output then goes on to verify the tag.
             nuint needed = s.CiphertextLen;
-            if (output == null || outputCapacity < needed)
+            if (needed != 0 && (output == null || outputCapacity < needed))
             {
                 *outWritten = needed;
                 return Status.BufferTooSmall;

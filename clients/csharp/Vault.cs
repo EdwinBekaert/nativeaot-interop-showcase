@@ -131,7 +131,8 @@ internal sealed unsafe class Vault : IDisposable
     {
         int status = NativeMethods.Decrypt(_handle, sealedResult.Raw, null, 0, out nuint needed);
         GC.KeepAlive(sealedResult);
-        if (status != Status.BufferTooSmall)
+        // VAULT_OK: an empty plaintext, already verified, needs no buffer.
+        if (status != Status.BufferTooSmall && status != Status.Ok)
             throw new VaultException(status);
         return checked((int)needed);
     }
