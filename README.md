@@ -31,6 +31,7 @@ assembly directly, such as a .NET Framework or Unity app, would use it.
 | Static strings | `vault_version`, `vault_status_message` | Allocated once, valid for the process lifetime |
 | Async `Task` → C callback with `user_data` | `vault_encrypt_async` | The callback fires exactly once, on success *or* failure, on a worker thread |
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
+| Leak and memory-error checks | CI `sanitizers` job | The C client runs under AddressSanitizer, LeakSanitizer and UBSan; a forgotten `vault_sealed_free` is reported down to the C# line that allocated it |
 | Layout checks | `vault_native.h`, `ffi.rs` | `static_assert` in C and `const` asserts in Rust on struct size and field offsets; `bool` is 1 byte everywhere |
 | Dynamic loading with `ctypes` | `clients/python/vault_client.py` | Every signature declared (pointers aren't truncated); one permanent callback routes completions by a `user_data` token, so no callback is freed while C can still call it |
 | C# calling a C API | `clients/csharp/` | `[LibraryImport]` source-generated stubs; a `SafeHandle` owns the native handle; an `[UnmanagedCallersOnly]` callback completes a `Task` via a `GCHandle` in `user_data` |

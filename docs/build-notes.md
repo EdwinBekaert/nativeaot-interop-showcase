@@ -68,6 +68,39 @@ path. It then breaks when moved to another machine.
 the C client's rpath is set to its own folder (`$ORIGIN`, or `@loader_path` on macOS),
 where the build copies the library.
 
+## Linux: running under AddressSanitizer
+
+The CI `sanitizers` job builds the C client with `-DVAULT_SANITIZE=ON`
+(`-fsanitize=address,undefined`). AddressSanitizer replaces `malloc` and `free` for the
+whole process. The library allocates its results with `NativeMemory`, which calls the
+same `malloc`, so library memory is tracked too. To try it locally on Linux:
+
+```sh
+cmake -B build-asan -DCMAKE_BUILD_TYPE=Debug -DVAULT_SANITIZE=ON
+cmake --build build-asan --target vault_c_client
+ctest --test-dir build-asan --tests-regex '^c_client$' --output-on-failure
+```
+
+Two things were needed to make the reports useful:
+
+- **Symbols.** NativeAOT strips symbols from the `.so` on Linux by default, which
+  leaves frames inside the library as bare addresses. The sanitizer build publishes
+  with `-p:StripSymbols=false`, so reports show C# method names and source lines.
+- **One suppression.** The first run reported six 88-byte "leaks" from
+  `SystemNative_LowLevelMonitor_Create`: the runtime's per-thread mutex and condition
+  variable. Managed objects on the garbage-collected heap hold them, LeakSanitizer
+  doesn't scan that heap, and the runtime frees them at thread exit, after the leak
+  check has run. [`clients/c/lsan.supp`](../clients/c/lsan.supp) suppresses exactly
+  that function, nothing broader.
+
+**Checking the check:** while setting this up, a temporary commit removed the client's
+`vault_sealed_free` call. The job failed and reported the 48-byte `vault_sealed_t` as a
+direct leak, plus its nonce (12 bytes), ciphertext (27) and tag (16) as indirect leaks,
+each traced to the allocating line in `Exports.cs` (`ToNative` / `CopyToNative`). The
+suppression hides runtime internals only.
+
+MSVC's AddressSanitizer has no leak detection, so this job runs on Linux only.
+
 ## Library file names
 
 NativeAOT names the library after the assembly, without a `lib` prefix:
