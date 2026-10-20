@@ -72,6 +72,18 @@ using (Vault vault = Vault.Open(key))
         Check(error.Status == Status.AuthenticationFailed, "a tampered tag fails authentication");
         Console.WriteLine($"  -> {error.Message}");
     }
+
+    // An empty message needs no output buffer; `fixed` on an empty array passes NULL.
+    try
+    {
+        Task<SealedResult> emptyEncryption = vault.EncryptAsync(ReadOnlySpan<byte>.Empty);
+        using SealedResult empty = await emptyEncryption;
+        Check(vault.Decrypt(empty).Length == 0, "an empty message round-trips");
+    }
+    catch (VaultException error)
+    {
+        Check(false, $"an empty message round-trips: {error.Message}");
+    }
 }
 
 Console.WriteLine(failures == 0 ? "\nAll checks passed." : "\nSome checks FAILED.");

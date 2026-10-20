@@ -44,6 +44,18 @@ static void on_encrypted(vault_status status, vault_sealed_t* sealed, void* user
     completion_signal(&pending->done);
 }
 
+/* Encrypts and waits for the result: NULL if the call or the callback failed. */
+static vault_sealed_t* encrypt_and_wait(const vault_t* vault, const uint8_t* data, size_t len)
+{
+    pending_encrypt_t pending = {0};
+    completion_init(&pending.done);
+    if (vault_encrypt_async(vault, data, len, on_encrypted, &pending) != VAULT_OK)
+        return NULL;
+    if (!completion_wait(&pending.done, 10000) || pending.status != VAULT_OK)
+        return NULL;
+    return pending.sealed;
+}
+
 int main(void)
 {
     /* [static] strings: use them, never free them. */
@@ -115,6 +127,21 @@ int main(void)
 
     free(plaintext);
     vault_sealed_free(sealed);
+
+    /* An empty message needs no output buffer: decrypting with output = NULL still
+       verifies its tag. */
+    vault_sealed_t* empty = encrypt_and_wait(vault, NULL, 0);
+    check(empty != NULL && empty->ciphertext_len == 0, "an empty message encrypts");
+    if (empty != NULL) {
+        written = 1;
+        status = vault_decrypt(vault, empty, NULL, 0, &written);
+        check(status == VAULT_OK && written == 0, "an empty message decrypts with output = NULL");
+        empty->tag[0] ^= 0x01;
+        status = vault_decrypt(vault, empty, NULL, 0, &written);
+        check(status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered empty message fails authentication");
+        vault_sealed_free(empty);
+    }
+
     vault_close(vault);
 
     printf("\n%s\n", failures == 0 ? "All checks passed." : "Some checks FAILED.");
