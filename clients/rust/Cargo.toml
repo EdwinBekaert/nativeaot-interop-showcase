@@ -1,0 +1,9 @@
+[package]
+name = "vault_rust_client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+# No dependencies: the bindings are written by hand in src/ffi.rs.
+[dependencies]

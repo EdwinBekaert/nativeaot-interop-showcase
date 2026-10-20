@@ -28,10 +28,19 @@ jobs:
           global-json-file: global.json
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DVAULT_REQUIRE_ALL_CLIENTS=ON
 
       - name: Build (NativeAOT library + clients)
         run: cmake --build build --config Release
 
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Rust lint (rustfmt + clippy)
+        if: runner.os == 'Linux'
+        working-directory: clients/rust
+        env:
+          VAULT_NATIVE_DIR: ${{ github.workspace }}/build/native
+        run: |
+          cargo fmt --check
+          cargo clippy --release --target-dir ../../build/cargo -- -D warnings
