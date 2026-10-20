@@ -95,12 +95,27 @@ using (Vault vault = opened)
     try
     {
         Task<SealedResult> emptyEncryption = vault.EncryptAsync(ReadOnlySpan<byte>.Empty);
-        using SealedResult empty = await emptyEncryption;
+        using SealedResult empty = await emptyEncryption.WaitAsync(TimeSpan.FromSeconds(10));
         Check(vault.Decrypt(empty).Length == 0, "an empty message round-trips");
+
+        empty.FlipTagBit();
+        try
+        {
+            vault.Decrypt(empty);
+            Check(false, "a tampered empty message fails authentication");
+        }
+        catch (VaultException error)
+        {
+            Check(error.Status == Status.AuthenticationFailed, "a tampered empty message fails authentication");
+        }
     }
     catch (VaultException error)
     {
         Check(false, $"an empty message round-trips: {error.Message}");
+    }
+    catch (TimeoutException)
+    {
+        Check(false, "an empty message round-trips: no callback within 10 seconds");
     }
 }
 

@@ -310,6 +310,30 @@ def main():
                 check(error.status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered tag fails authentication")
                 print(f"  -> {error}")
 
+        # An empty message needs no output buffer; its tag is still verified.
+        empty_done = threading.Event()
+        empty_outcome = {}
+
+        def on_empty(sealed, error):
+            empty_outcome.update(sealed=sealed, error=error)
+            empty_done.set()
+
+        vault.encrypt_async(b"", on_empty)
+        empty = empty_outcome.get("sealed") if empty_done.wait(timeout=10) else None
+        check(empty is not None, "an empty message encrypts")
+        if empty is not None:
+            with empty:
+                check(
+                    vault.plaintext_len(empty) == 0 and vault.decrypt(empty) == b"",
+                    "an empty message round-trips",
+                )
+                empty.flip_tag_bit()
+                try:
+                    vault.decrypt(empty)
+                    check(False, "a tampered empty message fails authentication")
+                except VaultError as error:
+                    check(error.status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered empty message fails authentication")
+
     print("\nAll checks passed." if failures == 0 else "\nSome checks FAILED.")
     return 0 if failures == 0 else 1
 

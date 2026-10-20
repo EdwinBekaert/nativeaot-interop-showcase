@@ -128,6 +128,29 @@ fn main() -> ExitCode {
         println!("  -> {error}");
     }
 
+    // An empty message needs no output buffer; its tag is still verified.
+    let (sender, receiver) = mpsc::channel();
+    let empty_started = vault.encrypt_async(&[], move |result| {
+        let _ = sender.send(result);
+    });
+    match (
+        empty_started,
+        receiver.recv_timeout(Duration::from_secs(10)),
+    ) {
+        (Ok(()), Ok(Ok(mut empty))) => {
+            checks.check(
+                vault.plaintext_len(&empty) == Ok(0) && vault.decrypt(&empty) == Ok(Vec::new()),
+                "an empty message round-trips",
+            );
+            empty.tag_mut()[0] ^= 0x01;
+            checks.check(
+                vault.decrypt(&empty) == Err(VaultError(ffi::VAULT_ERR_AUTHENTICATION_FAILED)),
+                "a tampered empty message fails authentication",
+            );
+        }
+        other => checks.check(false, &format!("an empty message round-trips: {other:?}")),
+    }
+
     // `sealed` and `vault` are freed here, in reverse order, by their Drop impls.
     if checks.failures == 0 {
         println!("\nAll checks passed.");

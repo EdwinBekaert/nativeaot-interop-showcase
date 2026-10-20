@@ -53,18 +53,28 @@ static vault_sealed_t* encrypt_and_wait(const vault_t* vault, const uint8_t* dat
     completion_init(&pending.done);
     if (vault_encrypt_async(vault, data, len, on_encrypted, &pending) != VAULT_OK)
         return NULL;
-    if (!completion_wait(&pending.done, 10000) || pending.status != VAULT_OK)
-        return NULL;
-    return pending.sealed;
+    if (!completion_wait(&pending.done, 10000)) {
+        /* The callback still holds &pending and will write to it later, so this frame
+           must not return. A timeout ends the test run. */
+        check(false, "an encryption finished within 10 seconds");
+        exit(1);
+    }
+    return pending.status == VAULT_OK ? pending.sealed : NULL;
 }
 
 int main(void)
 {
     /* [static] strings: use them, never free them. */
     printf("Vault library %s\n\n", vault_version());
-    check(strcmp(vault_status_message(VAULT_OK), "ok") == 0
+    check(strcmp(vault_version(), "0.1.0") == 0
+              && strcmp(vault_status_message(VAULT_OK), "ok") == 0
+              && strcmp(vault_status_message(VAULT_ERR_INVALID_ARGUMENT), "invalid argument") == 0
+              && strcmp(vault_status_message(VAULT_ERR_BUFFER_TOO_SMALL), "output buffer too small") == 0
+              && strcmp(vault_status_message(VAULT_ERR_AUTHENTICATION_FAILED),
+                        "authentication failed: wrong key or tampered data") == 0
+              && strcmp(vault_status_message(VAULT_ERR_INTERNAL), "internal error") == 0
               && strcmp(vault_status_message(12345), "unknown status code") == 0,
-          "status messages are NUL-terminated static strings");
+          "the version and every status message are NUL-terminated static strings");
 
     /* Invalid input is reported as a status code, not a crash. */
     uint8_t short_key[7] = {0};
@@ -143,6 +153,9 @@ int main(void)
     check(vault_decrypt(vault, sealed, plaintext, needed - 1, &reported) == VAULT_ERR_BUFFER_TOO_SMALL
               && reported == needed,
           "a buffer one byte short returns VAULT_ERR_BUFFER_TOO_SMALL with the size needed");
+    reported = 0;
+    check(vault_decrypt(vault, sealed, NULL, needed, &reported) == VAULT_ERR_BUFFER_TOO_SMALL && reported == needed,
+          "a NULL output with a large capacity is still a size query");
     check(vault_decrypt(vault, sealed, plaintext, needed, NULL) == VAULT_ERR_INVALID_ARGUMENT,
           "a NULL out_written is rejected");
     vault_sealed_t short_nonce = *sealed; /* same buffers, wrong length */
@@ -181,6 +194,8 @@ int main(void)
         vault_sealed_free(empty);
     }
 
+    vault_sealed_free(NULL); /* documented as ignored */
+    check(true, "vault_sealed_free(NULL) returns");
     vault_close(vault);
 
     printf("\n%s\n", failures == 0 ? "All checks passed." : "Some checks FAILED.");
