@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- File name of the native library: vault_native.dll / vault_native.so / vault_native.dylib -->
+    <AssemblyName>vault_native</AssemblyName>
+    <RootNamespace>Vault.Native</RootNamespace>
+
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vault.Core\Vault.Core.csproj" />
+  </ItemGroup>
+
+  <!-- C callers on Windows link against the import library, which NativeAOT leaves
+       in the intermediate folder. Ship it next to the DLL. -->
+  <Target Name="PublishImportLibrary" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Copy SourceFiles="$(NativeOutputPath)$(TargetName).lib" DestinationFolder="$(PublishDir)" />
+  </Target>
+</Project>

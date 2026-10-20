@@ -1,0 +1,13 @@
+# CMake build trees (the .NET build output lands in build/*/dotnet too)
+build/
+out/
+
+# .NET
+bin/
+obj/
+*.user
+
+# Editors
+.vs/
+.vscode/
+.idea/
