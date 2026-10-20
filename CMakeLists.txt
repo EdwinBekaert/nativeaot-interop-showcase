@@ -58,6 +58,13 @@ if(WIN32)
         --modify "LIB=unset:")
 endif()
 
+# Sanitizer reports need function names, so keep the library's symbols in that build
+# (NativeAOT strips them into a separate file by default).
+set(vault_publish_options "")
+if(VAULT_SANITIZE)
+    set(vault_publish_options -p:StripSymbols=false)
+endif()
+
 file(GLOB_RECURSE vault_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/*.cs"
     "${CMAKE_SOURCE_DIR}/src/*.csproj")
@@ -70,6 +77,7 @@ add_custom_command(
             --output "${vault_publish_dir}"
             --artifacts-path "${CMAKE_BINARY_DIR}/dotnet"
             --nologo
+            ${vault_publish_options}
     DEPENDS ${vault_sources}
             "${CMAKE_SOURCE_DIR}/Directory.Build.props"
             "${CMAKE_SOURCE_DIR}/global.json"
