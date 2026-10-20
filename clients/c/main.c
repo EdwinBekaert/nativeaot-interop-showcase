@@ -92,6 +92,18 @@ int main(void)
     if (status != VAULT_OK)
         return 1;
 
+    /* AES-128 and AES-192 keys work too. */
+    size_t smaller_sizes[] = {16, 24};
+    for (size_t i = 0; i < 2; i++) {
+        vault_t* smaller = NULL;
+        vault_info_t smaller_info = {0};
+        bool ok = vault_open(key, smaller_sizes[i], &smaller) == VAULT_OK
+                  && vault_get_info(smaller, &smaller_info) == VAULT_OK
+                  && smaller_info.key_bits == smaller_sizes[i] * 8;
+        check(ok, smaller_sizes[i] == 16 ? "vault_open with a 128-bit key" : "vault_open with a 192-bit key");
+        vault_close(smaller);
+    }
+
     /* [caller-owned] struct on our stack, filled in by C#. */
     vault_info_t info;
     check(vault_get_info(vault, &info) == VAULT_OK && info.key_bits == 256,
@@ -162,6 +174,10 @@ int main(void)
     short_nonce.nonce_len = 5;
     check(vault_decrypt(vault, &short_nonce, plaintext, needed, &written) == VAULT_ERR_INVALID_ARGUMENT,
           "a 5-byte nonce is rejected with VAULT_ERR_INVALID_ARGUMENT");
+    vault_sealed_t no_ciphertext = *sealed;
+    no_ciphertext.ciphertext = NULL;
+    check(vault_decrypt(vault, &no_ciphertext, plaintext, needed, &written) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL ciphertext with a non-zero length is rejected");
 
     /* A different key fails authentication. */
     uint8_t other_key[32] = {0};
@@ -173,8 +189,10 @@ int main(void)
 
     /* Tampering is detected: flip one bit of the tag. */
     sealed->tag[0] ^= 0x01;
+    written = 99;
     status = vault_decrypt(vault, sealed, plaintext, needed, &written);
-    check(status == VAULT_ERR_AUTHENTICATION_FAILED, "a tampered tag fails authentication");
+    check(status == VAULT_ERR_AUTHENTICATION_FAILED && written == 0,
+          "a tampered tag fails authentication and reports 0 bytes written");
     printf("  -> %s\n", vault_status_message(status));
 
     free(plaintext);
