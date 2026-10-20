@@ -3,16 +3,16 @@
 [![CI](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml)
 
 A C# library compiled with **.NET NativeAOT** into a plain native shared library
-(`vault_native.dll` / `.so` / `.dylib`), called from C through a small C API. Callers
-need no .NET runtime: to them it is just another C library.
+(`vault_native.dll` / `.so` / `.dylib`), called from C and Rust through a small C API.
+Callers need no .NET runtime: to them it is just another C library.
 
 The library itself is deliberately small (AES-GCM encryption via
 `System.Security.Cryptography`), so the interesting part is the boundary between
 languages: who owns which memory, how async work reports back, and how errors cross
 without crashing the caller.
 
-> **Status:** C client, built and tested by CI on Windows, Linux and macOS. Rust and
-> Python clients and C# calling native code are next.
+> **Status:** C and Rust clients, built and tested by CI on Windows, Linux and macOS.
+> A Python client and C# calling native code are next.
 
 ## What it demonstrates
 
@@ -25,7 +25,8 @@ without crashing the caller.
 | Static strings | `vault_version`, `vault_status_message` | Allocated once, valid for the process lifetime |
 | Async `Task` → C callback with `user_data` | `vault_encrypt_async` | The callback fires exactly once, on success *or* failure, on a worker thread |
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
-| Layout checks | `vault_native.h` | `static_assert` on struct size and field offsets; `bool` is 1 byte on both sides |
+| Layout checks | `vault_native.h`, `ffi.rs` | `static_assert` in C and `const` asserts in Rust on struct size and field offsets; `bool` is 1 byte everywhere |
+| Safe wrapper over a C API | `clients/rust/src/vault.rs` | Handles and results free themselves on `Drop`; errors are `Result`s; a Rust closure becomes the C callback through a trampoline |
 
 ## Documentation
 
@@ -46,7 +47,8 @@ src/
   Vault.Native/      NativeAOT export layer: [UnmanagedCallersOnly] functions
     include/         vault_native.h, the public C API
 clients/
-  c/                 C client; also the integration test
+  c/                 C client; also an integration test
+  rust/              Rust client: raw bindings (ffi.rs), safe wrapper (vault.rs), checks (main.rs)
 CMakeLists.txt       One build: runs dotnet publish, then compiles the clients
 ```
 
@@ -58,6 +60,7 @@ Requirements:
 - A C compiler and CMake 3.25+
 - Windows: Visual Studio Build Tools (2022 or 2026) with the "Desktop development
   with C++" workload. NativeAOT uses its linker too.
+- Optional: Rust 1.85+ for the Rust client. It is skipped when `cargo` isn't found.
 
 ```sh
 cmake -B build
@@ -66,10 +69,10 @@ ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 The NativeAOT compiler packages are downloaded from nuget.org on the first build.
-There are no other third-party dependencies.
+There are no other third-party dependencies: no NuGet packages, no crates.
 
-To see the C client's output, run it directly: `build/clients/c/Release/vault_c_client`
-(on Windows with the Visual Studio generator).
+To see a client's output, run it directly: `build/clients/c/Release/vault_c_client`
+(on Windows with the Visual Studio generator) or `build/cargo/release/vault_rust_client`.
 
 ## Memory ownership rules
 

@@ -88,3 +88,16 @@ add_dependencies(vault_native vault_native_publish)
 # ---- Clients -----------------------------------------------------------------
 
 add_subdirectory(clients/c)
+
+# Clients in other languages are built when their toolchain is installed. CI sets
+# VAULT_REQUIRE_ALL_CLIENTS so a missing toolchain fails instead of skipping.
+option(VAULT_REQUIRE_ALL_CLIENTS "Fail when a client's toolchain is missing" OFF)
+
+find_program(CARGO cargo HINTS "$ENV{HOME}/.cargo/bin" "$ENV{USERPROFILE}/.cargo/bin")
+if(CARGO)
+    add_subdirectory(clients/rust)
+elseif(VAULT_REQUIRE_ALL_CLIENTS)
+    message(FATAL_ERROR "cargo not found, and VAULT_REQUIRE_ALL_CLIENTS is ON")
+else()
+    message(STATUS "cargo not found: skipping the Rust client")
+endif()
