@@ -11,6 +11,9 @@
  *                    vault_*_free / vault_close function, never with free().
  *   [static]         lives for the whole process; never free it.
  *
+ * Every `vault` argument is the [library-owned] handle from vault_open, and every
+ * out_* pointer points at [caller-owned] memory that the call fills in.
+ *
  * Requires C11 (or C++11).
  */
 #ifndef VAULT_NATIVE_H
@@ -89,7 +92,8 @@ VAULT_API const char* vault_status_message(vault_status status);
 /*
  * Opens a vault with an AES key of 16, 24 or 32 bytes.
  *   key        [caller-owned] copied; you may wipe it as soon as the call returns.
- *   out_vault  receives a [library-owned] handle; release it with vault_close.
+ *   out_vault  [caller-owned] variable that receives a [library-owned] handle;
+ *              release the handle with vault_close.
  */
 VAULT_API vault_status vault_open(const uint8_t* key, size_t key_len, vault_t** out_vault);
 
@@ -107,7 +111,8 @@ VAULT_API vault_status vault_get_info(const vault_t* vault, vault_info_t* out_in
  * Starts encrypting on a worker thread and returns at once.
  *   plaintext  [caller-owned] copied before this function returns.
  *   callback   called exactly once, but only if this function returns VAULT_OK.
- *   user_data  passed through to the callback untouched; may be NULL.
+ *   user_data  [caller-owned] passed through to the callback untouched, never read;
+ *              may be NULL. Keep what it points to alive until the callback runs.
  */
 VAULT_API vault_status vault_encrypt_async(const vault_t* vault,
                                            const uint8_t* plaintext, size_t plaintext_len,
@@ -120,7 +125,7 @@ VAULT_API void vault_sealed_free(vault_sealed_t* sealed);
  * Decrypts and verifies `sealed` into a buffer you provide.
  *   sealed       [caller-owned] read only; a result from the callback works as is.
  *   output       [caller-owned] receives the plaintext.
- *   out_written  set to the number of bytes written.
+ *   out_written  [caller-owned] set to the number of bytes written.
  * To find the size needed, pass output = NULL: the call returns
  * VAULT_ERR_BUFFER_TOO_SMALL and sets *out_written to the size. An empty plaintext
  * needs no buffer: then the call verifies the tag and returns VAULT_OK (or
