@@ -1,6 +1,7 @@
 /*
  * completion.h - a one-shot "done" signal with a timeout, so the main thread can wait
- * for a callback that runs on another thread. Windows and POSIX versions.
+ * for a callback that runs on another thread, and a way to tell threads apart.
+ * Windows and POSIX versions.
  */
 #ifndef COMPLETION_H
 #define COMPLETION_H
@@ -17,6 +18,11 @@ typedef struct completion {
     CONDITION_VARIABLE cv;
     bool done;
 } completion_t;
+
+typedef DWORD thread_id_t;
+
+static thread_id_t current_thread(void) { return GetCurrentThreadId(); }
+static bool same_thread(thread_id_t a, thread_id_t b) { return a == b; }
 
 static void completion_init(completion_t* c)
 {
@@ -59,6 +65,11 @@ typedef struct completion {
     pthread_cond_t cv;
     bool done;
 } completion_t;
+
+typedef pthread_t thread_id_t;
+
+static thread_id_t current_thread(void) { return pthread_self(); }
+static bool same_thread(thread_id_t a, thread_id_t b) { return pthread_equal(a, b) != 0; }
 
 static void completion_init(completion_t* c)
 {

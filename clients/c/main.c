@@ -33,6 +33,7 @@ typedef struct pending_encrypt {
     completion_t done;
     vault_status status;
     vault_sealed_t* sealed;
+    thread_id_t callback_thread;
 } pending_encrypt_t;
 
 /* Runs on a library worker thread. Hands the result to main and returns quickly. */
@@ -41,6 +42,7 @@ static void on_encrypted(vault_status status, vault_sealed_t* sealed, void* user
     pending_encrypt_t* pending = (pending_encrypt_t*)user_data;
     pending->status = status;
     pending->sealed = sealed; /* ownership moves to main, which frees it */
+    pending->callback_thread = current_thread();
     completion_signal(&pending->done);
 }
 
@@ -95,7 +97,8 @@ int main(void)
         return 1;
 
     bool finished = completion_wait(&pending.done, 10000);
-    check(finished && pending.status == VAULT_OK && pending.sealed != NULL,
+    check(finished && pending.status == VAULT_OK && pending.sealed != NULL
+              && !same_thread(pending.callback_thread, current_thread()),
           "callback delivered a result on a worker thread");
     if (!finished || pending.sealed == NULL)
         return 1;
@@ -104,6 +107,20 @@ int main(void)
     print_hex("nonce", sealed->nonce, sealed->nonce_len);
     print_hex("ciphertext", sealed->ciphertext, sealed->ciphertext_len);
     print_hex("tag", sealed->tag, sealed->tag_len);
+    check(sealed->ciphertext_len == message_len && memcmp(sealed->ciphertext, message, message_len) != 0,
+          "the ciphertext differs from the plaintext");
+
+    /* Every encryption gets a fresh nonce, even for the same message. */
+    vault_sealed_t* again = encrypt_and_wait(vault, (const uint8_t*)message, message_len);
+    check(again != NULL && memcmp(again->nonce, sealed->nonce, sealed->nonce_len) != 0,
+          "encrypting the same message twice uses different nonces");
+    vault_sealed_free(again);
+
+    /* More invalid input: each is a status code, and no callback runs. */
+    check(vault_encrypt_async(vault, (const uint8_t*)message, message_len, NULL, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL callback is rejected with VAULT_ERR_INVALID_ARGUMENT");
+    check(vault_encrypt_async(vault, NULL, 1, on_encrypted, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "NULL plaintext with a non-zero length is rejected");
 
     /* [caller-owned] output buffer: ask for the size, allocate, then decrypt. */
     size_t needed = 0;
@@ -118,6 +135,25 @@ int main(void)
     check(status == VAULT_OK && written == message_len && memcmp(plaintext, message, message_len) == 0,
           "vault_decrypt round-trips the message");
     printf("  plaintext   \"%.*s\"\n", (int)written, (const char*)plaintext);
+
+    size_t reported = 0;
+    check(vault_decrypt(vault, sealed, plaintext, needed - 1, &reported) == VAULT_ERR_BUFFER_TOO_SMALL
+              && reported == needed,
+          "a buffer one byte short returns VAULT_ERR_BUFFER_TOO_SMALL with the size needed");
+    check(vault_decrypt(vault, sealed, plaintext, needed, NULL) == VAULT_ERR_INVALID_ARGUMENT,
+          "a NULL out_written is rejected");
+    vault_sealed_t short_nonce = *sealed; /* same buffers, wrong length */
+    short_nonce.nonce_len = 5;
+    check(vault_decrypt(vault, &short_nonce, plaintext, needed, &written) == VAULT_ERR_INVALID_ARGUMENT,
+          "a 5-byte nonce is rejected with VAULT_ERR_INVALID_ARGUMENT");
+
+    /* A different key fails authentication. */
+    uint8_t other_key[32] = {0};
+    vault_t* other = NULL;
+    status = vault_open(other_key, sizeof other_key, &other);
+    check(status == VAULT_OK && vault_decrypt(other, sealed, plaintext, needed, &written) == VAULT_ERR_AUTHENTICATION_FAILED,
+          "decrypting with a different key fails authentication");
+    vault_close(other);
 
     /* Tampering is detected: flip one bit of the tag. */
     sealed->tag[0] ^= 0x01;
