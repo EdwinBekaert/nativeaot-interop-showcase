@@ -114,7 +114,7 @@ int main(void)
     printf("  -> %s\n", vault_status_message(status));
 
     free(plaintext);
-    /* EXPERIMENT: vault_sealed_free(sealed); deliberately skipped */
+    vault_sealed_free(sealed);
     vault_close(vault);
 
     printf("\n%s\n", failures == 0 ? "All checks passed." : "Some checks FAILED.");
