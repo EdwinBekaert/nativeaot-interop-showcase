@@ -41,17 +41,17 @@ endif()
 
 # On Windows, NativeAOT links with MSVC and locates it through vcvarsall.bat. The
 # Visual Studio 2026 version of that script runs vswhere.exe from PATH, and the
-# installer does not put it there, so add it for the publish step only. LIB is
+# installer does not put it there, so add it for the .NET build steps. LIB is
 # cleared because the Visual Studio generator passes a partial one down, which
 # makes the C# compiler warn; vcvarsall.bat sets the right value itself.
-set(vault_publish_env "")
+set(vault_dotnet_env "")
 if(WIN32)
     set(program_files_x86 "ProgramFiles(x86)")
     find_program(VSWHERE vswhere
         HINTS "$ENV{${program_files_x86}}/Microsoft Visual Studio/Installer"
         REQUIRED)
     cmake_path(GET VSWHERE PARENT_PATH vswhere_dir)
-    set(vault_publish_env "${CMAKE_COMMAND}" -E env
+    set(vault_dotnet_env "${CMAKE_COMMAND}" -E env
         --modify "PATH=path_list_prepend:${vswhere_dir}"
         --modify "LIB=unset:")
 endif()
@@ -62,7 +62,7 @@ file(GLOB_RECURSE vault_sources CONFIGURE_DEPENDS
 
 add_custom_command(
     OUTPUT "${vault_library}" ${vault_import_library}
-    COMMAND ${vault_publish_env} "${DOTNET}" publish "${CMAKE_SOURCE_DIR}/src/Vault.Native/Vault.Native.csproj"
+    COMMAND ${vault_dotnet_env} "${DOTNET}" publish "${CMAKE_SOURCE_DIR}/src/Vault.Native/Vault.Native.csproj"
             --configuration Release
             --runtime ${VAULT_RID}
             --output "${vault_publish_dir}"
@@ -88,6 +88,7 @@ add_dependencies(vault_native vault_native_publish)
 # ---- Clients -----------------------------------------------------------------
 
 add_subdirectory(clients/c)
+add_subdirectory(clients/csharp) # needs only the .NET SDK, which the library needs anyway
 
 # Clients in other languages are built when their toolchain is installed. CI sets
 # VAULT_REQUIRE_ALL_CLIENTS so a missing toolchain fails instead of skipping.

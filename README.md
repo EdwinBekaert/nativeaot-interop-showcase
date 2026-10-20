@@ -3,7 +3,7 @@
 [![CI](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml/badge.svg)](https://github.com/EdwinBekaert/nativeaot-interop-showcase/actions/workflows/ci.yml)
 
 A C# library compiled with **.NET NativeAOT** into a plain native shared library
-(`vault_native.dll` / `.so` / `.dylib`), called from C, Rust and Python through a small C API.
+(`vault_native.dll` / `.so` / `.dylib`), called from C, Rust, Python and C# through a small C API.
 Callers need no .NET runtime: to them it is just another C library.
 
 The library itself is deliberately small (AES-GCM encryption via
@@ -11,8 +11,14 @@ The library itself is deliberately small (AES-GCM encryption via
 languages: who owns which memory, how async work reports back, and how errors cross
 without crashing the caller.
 
-> **Status:** C, Rust and Python clients, built and tested by CI on Windows, Linux
-> and macOS. C# calling native code is next.
+> **Status:** C, Rust, Python and C# clients, built and tested by CI on Windows, Linux
+> and macOS.
+
+Interop runs both ways: native code calls into C# (the exports, the GCHandle-backed
+handle), and C# calls native code (the C# client, using `[LibraryImport]` and
+`SafeHandle`). The C# client uses the library only through its C API, as it would
+use any C library. In practice, this is how an app that can't reference a .NET 10
+assembly directly, such as a .NET Framework or Unity app, would use it.
 
 ## What it demonstrates
 
@@ -27,6 +33,7 @@ without crashing the caller.
 | Exception boundary | every export | No managed exception escapes; each becomes a status code |
 | Layout checks | `vault_native.h`, `ffi.rs` | `static_assert` in C and `const` asserts in Rust on struct size and field offsets; `bool` is 1 byte everywhere |
 | Dynamic loading with `ctypes` | `clients/python/vault_client.py` | Every signature declared (pointers aren't truncated); one permanent callback routes completions by a `user_data` token, so no callback is freed while C can still call it |
+| C# calling a C API | `clients/csharp/` | `[LibraryImport]` source-generated stubs; a `SafeHandle` owns the native handle; an `[UnmanagedCallersOnly]` callback completes a `Task` via a `GCHandle` in `user_data` |
 | Safe wrapper over a C API | `clients/rust/src/vault.rs` | Handles and results free themselves on `Drop`; errors are `Result`s; a Rust closure becomes the C callback through a trampoline |
 
 ## Documentation
@@ -51,6 +58,7 @@ clients/
   c/                 C client; also an integration test
   rust/              Rust client: raw bindings (ffi.rs), safe wrapper (vault.rs), checks (main.rs)
   python/            Python client: ctypes bindings, wrapper and checks in one file
+  csharp/            C# client on the regular .NET runtime: imports, SafeHandles, checks
 CMakeLists.txt       One build: runs dotnet publish, then compiles the clients
 ```
 
@@ -77,8 +85,8 @@ packages.
 
 To see a client's output, run it directly: `build/clients/c/Release/vault_c_client`
 (on Windows with the Visual Studio generator), `build/cargo/release/vault_rust_client`,
-or `python clients/python/vault_client.py build/native/vault_native.dll` (`.so` /
-`.dylib` elsewhere).
+`python clients/python/vault_client.py build/native/vault_native.dll` (`.so` /
+`.dylib` elsewhere), or `dotnet build/csharp/vault_csharp_client.dll`.
 
 ## Memory ownership rules
 

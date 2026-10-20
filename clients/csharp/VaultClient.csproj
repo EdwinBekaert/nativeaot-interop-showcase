@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- An ordinary .NET app (JIT, not AOT) that uses vault_native only through its
+       C API, exactly as it would use a library written in C or Rust. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>vault_csharp_client</AssemblyName>
+    <RootNamespace>VaultClient</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>
